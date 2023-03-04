@@ -1,0 +1,230 @@
+﻿///$tab Main
+SET ThousandSep=' ';
+SET DecimalSep=',';
+SET MoneyThousandSep=' ';
+SET MoneyDecimalSep=',';
+SET MoneyFormat='# ##0,00 ₴;-# ##0,00 ₴';
+SET TimeFormat='hh:mm:ss';
+SET DateFormat='DD.MM.YYYY';
+SET TimestampFormat='DD.MM.YYYY hh:mm:ss[.fff]';
+SET FirstWeekDay=0;
+SET BrokenWeeks=1;
+SET ReferenceDay=0;
+SET FirstMonthOfYear=1;
+SET CollationLocale='ru-UA';
+SET MonthNames='янв.;февр.;мар.;апр.;мая;июн.;июл.;авг.;сент.;окт.;нояб.;дек.';
+SET LongMonthNames='январь;февраль;март;апрель;май;июнь;июль;август;сентябрь;октябрь;ноябрь;декабрь';
+SET DayNames='пн;вт;ср;чт;пт;сб;вс';
+SET LongDayNames='понедельник;вторник;среда;четверг;пятница;суббота;воскресенье';
+///$tab Параметры
+SET перПапкаПродаж       = C:\Users\asmirkin\Documents\task\Sales\;
+SET перПапкаВесов        = C:\Users\asmirkin\Documents\task\ВесДня\;
+SET перПапкаСправочников = C:\Users\asmirkin\Documents\task\Dic\;
+///$tab Продажи
+FOR Each перТекущаяПапка in dirList('$(перПапкаПродаж)*')
+	FOR Each перТекущийФайл in FileList('$(перТекущаяПапка)\*.qvd')
+		Продажи:
+		LOAD *
+		FROM
+		[$(перТекущийФайл)] (qvd);
+	NEXT
+NEXT
+
+RENAME Table Продажи to Temp;
+
+Продажи:
+LOAD
+	*,
+	AutoNumberHash256(Категория, МесяцСтарт) as Связка1,
+	AutoNumberHash256(КодТовара, МесяцСтарт) as Связка2
+Resident
+	Temp;
+DROP Table Temp;
+///$tab Вес дат
+FOR Each перТекущаяПапка in dirList('$(перПапкаВесов)*')
+	FOR Each перТекущийФайл in FileList('$(перТекущаяПапка)\*.qvd')
+		ВесДат:
+		LOAD *
+		FROM
+		[$(перТекущийФайл)] (qvd);
+	NEXT
+NEXT
+
+RENAME Table ВесДат to Temp;
+ВесДат:
+LOAD
+	*,
+	AutoNumberHash256(Категория, MonthStart(Дата)) as Связка1
+Resident
+	Temp;
+DROP Table Temp;	
+DROP Field Категория;
+///$tab Справочники
+Товар:
+LOAD КодТовара, 
+     КодТовараРодителя, 
+     Товар, 
+     КодКатегорииDWH, 
+     Категория, 
+     Подкатегория, 
+     Бизнес, 
+     Бренд, 
+     Кондиционность, 
+     Подбизнес
+FROM
+[$(перПапкаСправочников)Tovar.qvd]
+(qvd)
+Where
+	Exists(КодТовара);
+
+Магазины:
+LOAD КодСкладаDWH, 
+     КодСкладаERP, 
+     НаименованиеСклада, 
+     АдресСклада, 
+     КодФормата, 
+     Город, 
+     Дивизион, 
+     Регион, 
+     ТипСклада, 
+     КодСклада, 
+     DateShopOpen, 
+     DateShopClose, 
+     StockCategoryName
+FROM
+[$(перПапкаСправочников)Shops.qvd]
+(qvd)
+Where
+	Exists(КодСкладаDWH);
+
+Left Join
+
+//Форматы:
+LOAD КодФормата, 
+     Формат
+FROM
+[$(перПапкаСправочников)ShopsFormat.qvd]
+(qvd);
+DROP Field КодФормата;
+
+ТипыКредита:
+LOAD Банк, 
+     КодТипаКредита, 
+     КодСтруктурыКредита, 
+     СтруктураКредита, 
+     ТипКредитаРозничный, 
+     КодГруппыКредита, 
+     ГруппаКредита, 
+     ТипаКредитаКод, 
+     ТипКредита, 
+     Кредит, 
+     Кредит_вирт, 
+     [Тип Кредита], 
+     BankNameShort
+FROM
+[$(перПапкаСправочников)CreditType.qvd]
+(qvd)
+Where
+	Exists(КодТипаКредита);
+
+///$tab Цены
+Шаблон:
+LOAD 
+	date(МинимальнаяДата + IterNo()) AS БазоваяДата
+WHILE МинимальнаяДата + IterNo() <= МаксимальнаяДата;
+LOAD
+	min(Дата)-1 as МинимальнаяДата,
+	max(Дата) as МаксимальнаяДата
+Resident
+	ВесДат;
+
+Join
+
+LOAD Distinct
+	КодТовара
+Resident
+	Продажи;
+
+Цены:
+LOAD ДатаНачало, 
+     ДатаКонец, 
+     КодТовара,
+     Цена
+FROM
+[$(перПапкаСправочников)Price.qvd]
+(qvd);
+
+Inner Join
+
+IntervalMatch (БазоваяДата, КодТовара)
+LOAD
+	 ДатаНачало, 
+     ДатаКонец,
+     КодТовара
+Resident
+	Цены;
+
+//NoConcatenate
+ЦеныДляАналитики:
+LOAD
+	БазоваяДата as [Дата цены],
+	КодТовара,
+	Цена
+Resident
+	Цены;
+
+RENAME Table Цены to Temp;
+
+Left Join (Продажи)
+
+//Цены:
+LOAD
+	Связка2,
+	Avg(Цена) as [Средняя цена]
+Group By
+	Связка2;
+LOAD
+	*,
+	AutoNumberHash256(КодТовара, MonthStart(БазоваяДата)) as Связка2
+Resident
+	Temp;
+DROP Table Temp;
+DROP Table Шаблон;
+
+///$tab Календари
+КалендарьДляПродаж:
+LOAD Distinct
+	Дата,
+	Year(Дата)      as Год,
+	MonthName(Дата) as [Месяц-Год],
+	Month(Дата)     as Месяц,
+	WeekName(Дата)  as [Год-Неделя],
+	Week(Дата)      as Неделя,
+	WeekDay(Дата)   as [День недели],
+	Day(Дата)       as День
+Resident
+	ВесДат;
+
+КалендарьДляЦен:
+LOAD Distinct
+	[Дата цены],
+	Year([Дата цены])      as [Год (цены)],
+	MonthName([Дата цены]) as [Месяц-Год (цены)],
+	Month([Дата цены])     as [Месяц (цены)],
+	WeekName([Дата цены])  as [Год-Неделя (цены)],
+	Week([Дата цены])      as [Неделя (цены)]
+Resident
+	ЦеныДляАналитики;
+///$tab Дополнение
+RENAME Table Продажи to Temp;
+
+Продажи:
+LOAD
+	*,
+	[Средняя цена] * ОборотШТ as ОборотСумма
+Resident
+	Temp;
+DROP Table Temp;
+DROP Field Связка2, [Средняя цена];
+///$tab Выход
+EXIT SCRIPT;
