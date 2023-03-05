@@ -1,0 +1,31 @@
+TRACE  ЗАВАНТАЖУЮ КАЛЕНДАР;
+
+Календарь:
+LOAD
+	Date(DataT,'DD.MM.YYYY')                                                                                as [Дата документа]
+	,Year(DataT)                                                                                            as Год
+	,Month(DataT)                                                                                           as Месяц
+	,'Кв.'&ceil(month(DataT)/3)                                                                             as Квартал
+	,if(DataT<='31.12.2017', Week(DataT)-1,Week(DataT)-1)                                                   as НеделяНомер
+	,Dual(Date(WeekStart(DataT,0),'DD.MM')&'-'&Date(WeekEnd(DataT,0),'DD.MM.YYYY'),num(WeekStart(DataT,0))) as НеделяПериод
+	,WeekDay(DataT)                                                                                         as ДеньНедели
+	,Day(DataT)                                                                                             as День
+	,Week(DataT)& '-'&WeekDay(DataT)                                                                        as НеделяДень
+	,if(WeekDay(DataT)>4,'Выходной','Будний')                                                               as ТипДняНедели
+	,Year(DataT)& '-'&num(if(Year(DataT)=2017, Week(DataT)-1,Week(DataT)),'00')                             as ГодНеделя
+	,Year(DataT)-2000& '`'&Num(Month(DataT),'00')                                                           as ГодМесяцКратко
+	,Year(DataT)&Num(Month(DataT),'00')                                                                     as ГодМесяц
+	,IterNo()                                                                                               as Iter
+	,Year(DataT)&dual('q'&ceil(month(DataT)/3),ceil(month(DataT)/3))                                        as ГодКвартал
+	,if(InYearToDate(DataT, today(),0), 1, 0)                                                               as CurYearFlag 
+        ,if(InQuarterToDate(DataT, today(),0), 1, 0) 				                                as CurQtrFlag     
+       ,if(InMonthToDate(DataT, today(),0), 1, 0)                                                               as CurMonthFlag 
+       ,if(InYear(DataT, today(),-1), 1, 0) 		                                                        as LastYearFlag
+       ,if(InQuarter(DataT, today(),-1), 1, 0) 									as LastQtrFlag
+       ,if(InMonth(DataT, today(),-1), 1, 0) 				                                        as LastMonthFlag
+;
+
+LOAD
+	Date(Date#('$(DateStartCal)') + IterNo()-1,'DD.MM.YYYY')                                                as [DataT]
+AutoGenerate 1
+while Date(Date#('$(DateStartCal)') + IterNo()-1) <= Date('$(DateFinishCal)');
